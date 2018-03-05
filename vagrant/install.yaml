@@ -2,7 +2,7 @@
 - name: Configure ssh keys
   hosts: localhost
   tasks:
-  - command: find /home/vagrant/sync/vagrant/.vagrant/machines -name private_key
+  - command: find /home/vagrant/sync/vagrant/.vagrant.{{ cluster_id }}/machines -name private_key
     register: private_keys
     changed_when: no
 
@@ -20,6 +20,11 @@
     when: "{{ deployment_type == 'openshift-enterprise' }}"
   - role: rhsm-repos
     when: "{{ deployment_type == 'openshift-enterprise' }}"
+  - role: docker-storage-setup
+    openshift:
+      common:
+        is_atomic: false
+    when: "( deployment_type == 'openshift-enterprise' ) and ( 'admin1' not in inventory_hostname )"
   tasks:
   # Vagrant's "change host name" capability for Fedora/EL
   # maps hostname to loopback, conflicting with hostmanager.

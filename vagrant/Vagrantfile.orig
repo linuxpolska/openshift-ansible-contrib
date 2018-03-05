@@ -18,27 +18,6 @@ sync_type = ENV['SYNC_TYPE'] || ''
 REQUIRED_PLUGINS = %w(vagrant-hostmanager)
 SUGGESTED_PLUGINS = %w(vagrant-sshfs landrush)
 
-cluster_id = ENV['CLUSTER_ID'].to_i || 0
-
-### https://github.com/hashicorp/vagrant/issues/3705
-### wrapper to deal with multiple vagrant data dirs
-VAGRANT_DOTFILE_PATH = ".vagrant.#{cluster_id}"
-currpath = ENV['VAGRANT_DOTFILE_PATH'];
-if(currpath.nil?)
-    currpath = '.vagrant';
-end
-#puts currpath #debugging
-if(currpath != VAGRANT_DOTFILE_PATH)
-    ENV['VAGRANT_DOTFILE_PATH'] = VAGRANT_DOTFILE_PATH
-    args = ARGV.join(' ');
-    system "vagrant #{args}"
-    #FileUtils.rm_r(currpath)
-    abort "Finished"
-end
-### wrapper end
-
-print "\n=== Cluster ID ##{cluster_id} ===\n\n"
-
 def message(name)
   "#{name} plugin is not installed, run `vagrant plugin install #{name}` to install it."
 end
@@ -68,15 +47,14 @@ end
 
 override_box_url = ''
 if deployment_type == 'openshift-enterprise'
-  box_name = 'rhel-7.4'
+  box_name = 'rhel/7.2'
 elsif origin_os == 'centos'
   box_name = 'centos/7'
 else
   box_name = 'fedora/25-cloud-base'
 end
 
-NETWORK_BASE = "192.168.#{100+cluster_id}"
-DOMAIN_NAME = "lab#{cluster_id}.example.com"
+NETWORK_BASE = '192.168.50'
 INTEGRATION_START_SEGMENT = 20
 
 def quote_labels(labels)
@@ -91,10 +69,6 @@ end
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
-# https://stackoverflow.com/questions/47209449/vagrant-the-ports-in-the-auto-correction-range-are-all-also-used
-
-  config.vm.usable_port_range = (2200..2299)
-
 #  if Vagrant.has_plugin?("vagrant-cachier")
 #    config.cache.scope = :machine
 #  end
@@ -106,7 +80,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
   if Vagrant.has_plugin?('landrush')
     config.landrush.enabled = true
-    config.landrush.tld = DOMAIN_NAME
+    config.landrush.tld = 'example.com'
     config.landrush.guest_redirect_dns = false
   end
 
@@ -125,14 +99,10 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   end
 
   # Configure eth0 via script, will disable NetworkManager and enable legacy network daemon:
-  # /k./ https://github.com/hashicorp/vagrant/issues/8096
-  #config.vm.provision "shell", path: "provision/setup.sh", args: [NETWORK_BASE]
-  config.vm.provision "shell", inline: "echo \"0S3demo#{cluster_id}et\"|sudo passwd vagrant --stdin"
-  config.vm.provision "shell", inline: "echo \"0S3demo#{cluster_id}et\"|sudo passwd root --stdin"
+  config.vm.provision "shell", path: "provision/setup.sh", args: [NETWORK_BASE]
 
   config.vm.provider "virtualbox" do |v, override|
     #v.customize ["setextradata", :id, "VBoxInternal2/SharedFoldersEnableSymlinksCreate//vagrant","1"]
-    # /k./ v.memory = 1024
     v.memory = 1024
     v.cpus = 1
     override.vm.box = box_name
@@ -151,63 +121,28 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.vm.synced_folder '.', '/vagrant', disabled: true
   config.vm.synced_folder '.', '/home/vagrant/sync', disabled: true
 
-  config.vm.define "master1.#{DOMAIN_NAME}" do |master1|
+  config.vm.define "master1" do |master1|
     master1.vm.network :private_network, ip: "#{NETWORK_BASE}.#{INTEGRATION_START_SEGMENT}"
-    master1.vm.hostname = "master1.#{DOMAIN_NAME}"
+    master1.vm.hostname = "master1.example.com"
     master1.hostmanager.aliases = %w(master1)
-
-    master1.vm.provider "virtualbox" do |vb|
-      vb.memory = 2048
-      disk = "#{VAGRANT_DOTFILE_PATH}/master1.#{DOMAIN_NAME}.vdi"
-      unless File.exist?(disk)
-        #vb.customize ['createhd', '--filename', disk, '--variant', 'Fixed', '--size', 10 * 1024]
-        vb.customize ['createhd', '--filename', disk, '--variant', 'Standard', '--size', 10 * 1024]
-      end
-      vb.customize ['storageattach', :id,  '--storagectl', 'SATA Controller', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', disk]
-    end
-
   end
 
-  config.vm.define "node1.#{DOMAIN_NAME}" do |node1|
+  config.vm.define "node1" do |node1|
     node1.vm.network :private_network, ip: "#{NETWORK_BASE}.#{INTEGRATION_START_SEGMENT + 1}"
-    node1.vm.hostname = "node1.#{DOMAIN_NAME}"
+    node1.vm.hostname = "node1.example.com"
     node1.hostmanager.aliases = %w(node1)
-
-    node1.vm.provider "virtualbox" do |vb|
-      vb.memory = 4096
-      disk = "#{VAGRANT_DOTFILE_PATH}/node1.#{DOMAIN_NAME}.vdi"
-      unless File.exist?(disk)
-        #vb.customize ['createhd', '--filename', disk, '--variant', 'Fixed', '--size', 10 * 1024]
-        vb.customize ['createhd', '--filename', disk, '--variant', 'Standard', '--size', 10 * 1024]
-      end
-      vb.customize ['storageattach', :id,  '--storagectl', 'SATA Controller', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', disk]
-    end
-
   end
 
-  config.vm.define "node2.#{DOMAIN_NAME}" do |node2|
+  config.vm.define "node2" do |node2|
     node2.vm.network :private_network, ip: "#{NETWORK_BASE}.#{INTEGRATION_START_SEGMENT + 2}"
-    node2.vm.hostname = "node2.#{DOMAIN_NAME}"
+    node2.vm.hostname = "node2.example.com"
     node2.hostmanager.aliases = %w(node2)
-
-    node2.vm.provider "virtualbox" do |vb|
-      vb.memory = 4096
-      disk = "#{VAGRANT_DOTFILE_PATH}/node2.#{DOMAIN_NAME}.vdi"
-      unless File.exist?(disk)
-        #vb.customize ['createhd', '--filename', disk, '--variant', 'Fixed', '--size', 10 * 1024]
-        vb.customize ['createhd', '--filename', disk, '--variant', 'Standard', '--size', 10 * 1024]
-      end
-      vb.customize ['storageattach', :id,  '--storagectl', 'SATA Controller', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', disk]
-    end
-
   end
 
-  config.vm.define "admin1.#{DOMAIN_NAME}" do |admin1|
+  config.vm.define "admin1" do |admin1|
     admin1.vm.network :private_network, ip: "#{NETWORK_BASE}.#{INTEGRATION_START_SEGMENT + 3}"
-    admin1.vm.hostname = "admin1.#{DOMAIN_NAME}"
+    admin1.vm.hostname = "admin1.example.com"
     admin1.hostmanager.aliases = %w(admin1)
-
-    admin1.vm.network "forwarded_port", guest: 22, host: "#{22000+cluster_id}", host_ip: "0.0.0.0"
 
     if deployment_type == 'openshift-enterprise'
       config_playbook = "/usr/share/ansible/openshift-ansible/playbooks/byo/config.yml"
@@ -216,80 +151,72 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     end
 
     admin1.vm.synced_folder "..", "/home/vagrant/sync", type: sync_type
-    admin1.vm.synced_folder "#{VAGRANT_DOTFILE_PATH}", "/home/vagrant/.hidden", type: sync_type
+    admin1.vm.synced_folder ".vagrant", "/home/vagrant/.hidden", type: sync_type
 
     ansible_groups = {
-      OSEv3: ["master1.#{DOMAIN_NAME}", "node1.#{DOMAIN_NAME}", "node2.#{DOMAIN_NAME}"],
+      OSEv3: ["master1", "node1", "node2"],
       'OSEv3:children': ["masters", "nodes", "etcd", "nfs"],
       'OSEv3:vars': {
         ansible_become: true,
         ansible_ssh_user: 'vagrant',
         deployment_type: deployment_type,
         openshift_master_identity_providers: "[{'name': 'htpasswd_auth', 'login': 'true', 'challenge': 'true', 'kind': 'HTPasswdPasswordIdentityProvider', 'filename': '/etc/origin/master/htpasswd'}]",
-        openshift_master_htpasswd_users: "{'admin': '$apr1$nWG7vwhy$jCMCBmBrW3MEYmCFCckYk1'}", # admin/admin123
-        openshift_master_default_subdomain: "apps.#{DOMAIN_NAME}",
+        openshift_master_htpasswd_users: "{'admin': '$apr1$nWG7vwhy$jCMCBmBrW3MEYmCFCckYk1'}",
+        openshift_master_default_subdomain: 'apps.example.com',
         osm_default_node_selector: 'region=primary',
         openshift_hosted_registry_selector: 'region=infra',
         openshift_hosted_registry_replicas: 1,
         openshift_hosted_registry_storage_kind: 'nfs',
         openshift_hosted_registry_storage_access_modes: ['ReadWriteMany'],
-        openshift_hosted_registry_storage_host: "admin1.#{DOMAIN_NAME}",
+        openshift_hosted_registry_storage_host: 'admin1.example.com',
         openshift_hosted_registry_storage_nfs_directory: '/srv/nfs',
         openshift_hosted_registry_storage_volume_name: 'registry',
         openshift_hosted_registry_storage_volume_size: '2Gi',
         rhsm_user: "#{ENV.fetch('SUB_USERNAME', '')}",
         rhsm_password: "#{ENV.fetch('SUB_PASSWORD', '')}",
         rhsm_pool: rhsm_pool,
-        openshift_disable_check: 'memory_availability',
       },
-      etcd: ["master1.#{DOMAIN_NAME}"],
-      nfs: ["admin1.#{DOMAIN_NAME}"],
-      masters: ["master1.#{DOMAIN_NAME}"],
-      nodes: ["master1.#{DOMAIN_NAME}", "node1.#{DOMAIN_NAME}", "node2.#{DOMAIN_NAME}"],
-      master1: ["master1.#{DOMAIN_NAME}" ],
-      node1: ["node1.#{DOMAIN_NAME}" ],
-      node2: ["node2.#{DOMAIN_NAME}" ],
-      admin1: ["admin1.#{DOMAIN_NAME}" ],
-      'all:vars': {
-        cluster_id: cluster_id,
-      },
+      etcd: ["master1"],
+      nfs: ["admin1"],
+      masters: ["master1"],
+      nodes: ["master1", "node1", "node2"],
     }
 
     ansible_host_vars = {
-      "master1.#{DOMAIN_NAME}":  {
-        openshift_ip: "#{NETWORK_BASE}.20",
+      master1:  {
+        openshift_ip: '192.168.50.20',
         openshift_node_labels: quote_labels(
           region: 'infra',
           zone: 'default',
         ),
         openshift_schedulable: true,
-        ansible_host: "#{NETWORK_BASE}.20",
-        ansible_ssh_private_key_file: "/home/vagrant/.ssh/master1.#{DOMAIN_NAME}.key"
+        ansible_host: '192.168.50.20',
+        ansible_ssh_private_key_file: "/home/vagrant/.ssh/master1.key"
       },
-      "node1.#{DOMAIN_NAME}": {
-        openshift_ip: "#{NETWORK_BASE}.21",
+      node1: {
+        openshift_ip: '192.168.50.21',
         openshift_node_labels: quote_labels(
           region: 'primary',
           zone: 'east',
         ),
         openshift_schedulable: true,
-        ansible_host: "#{NETWORK_BASE}.21",
-        ansible_ssh_private_key_file: "/home/vagrant/.ssh/node1.#{DOMAIN_NAME}.key"
+        ansible_host: '192.168.50.21',
+        ansible_ssh_private_key_file: "/home/vagrant/.ssh/node1.key"
       },
-      "node2.#{DOMAIN_NAME}": {
-        openshift_ip: "#{NETWORK_BASE}.22",
+      node2: {
+        openshift_ip: '192.168.50.22',
         openshift_node_labels: quote_labels(
           region: 'primary',
           zone: 'west',
         ),
         openshift_schedulable: true,
-        ansible_host: "#{NETWORK_BASE}.22",
-        ansible_ssh_private_key_file: "/home/vagrant/.ssh/node2.#{DOMAIN_NAME}.key"
+        ansible_host: '192.168.50.22',
+        ansible_ssh_private_key_file: "/home/vagrant/.ssh/node2.key"
       },
-      "admin1.#{DOMAIN_NAME}": {
+      admin1: {
         ansible_connection: 'local',
         deployment_type: deployment_type
-      },
+      }
     }
 
     admin1.vm.provision :ansible_local do |ansible|
@@ -312,9 +239,4 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       ansible.host_vars = ansible_host_vars
     end
   end
-
-#  config.vm.define "master1.#{DOMAIN_NAME}" do |master1|
-#    master1.vm.provision "shell", inline: "sudo oc adm manage-node --schedulable=false master1.#{DOMAIN_NAME}"
-#  end
 end
-
