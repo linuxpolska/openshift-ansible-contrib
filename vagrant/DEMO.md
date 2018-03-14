@@ -17,3 +17,8 @@ Test
 ```
 kaminskypavel/mario
 ```
+
+Help
+----
+
+Ask here: https://chat.google.com/room/AAAATys3PuQ
